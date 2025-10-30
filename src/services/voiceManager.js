@@ -84,8 +84,23 @@ class VoiceManager extends EventEmitter {
       // Create RTC Engine instance
       this.rtcEngine = new this.AgoraRtcEngine();
       
-      // Initialize with App ID
-      this.rtcEngine.initialize(agoraAppId);
+      // Initialize with proper context
+      const initResult = this.rtcEngine.initialize(agoraAppId, {
+        // Area code for region
+        areaCode: [1], // 1 = Global (excluding China)
+        
+        // Log configuration
+        logConfig: {
+          filePath: '',
+          fileSize: 2048,
+          level: 1
+        }
+      });
+
+      if (initResult < 0) {
+        console.error('❌ Agora initialization failed with code:', initResult);
+        return false;
+      }
       
       // Set channel profile to communication (voice chat)
       this.rtcEngine.setChannelProfile(1); // 1 = COMMUNICATION
@@ -169,7 +184,19 @@ class VoiceManager extends EventEmitter {
 
       // Initialize Agora if not already done
       if (!this.rtcEngine && this.AgoraRtcEngine) {
-        this.initializeAgora(channelInfo.agoraAppId);
+        const initialized = this.initializeAgora(channelInfo.agoraAppId);
+        if (!initialized) {
+          console.log('⚠️  Failed to initialize Agora - voice will not work');
+          
+          // Notify backend anyway (for tracking)
+          this.socket.emit('join-channel', {
+            channelId: channelInfo.channelId,
+            userPuuid: channelInfo.userPuuid
+          });
+          
+          this.emit('joined-channel-no-voice', channelInfo);
+          return false;
+        }
       }
 
       if (!this.rtcEngine) {

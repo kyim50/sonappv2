@@ -1,186 +1,230 @@
-// Get references to UI elements
-const loginScreen = document.getElementById('loginScreen');
-const appScreen = document.getElementById('appScreen');
-const clientIndicator = document.getElementById('clientIndicator');
-const clientStatus = document.getElementById('clientStatus');
-const gameStatus = document.getElementById('gameStatus');
-const summonerName = document.getElementById('summonerName');
-const voiceActive = document.getElementById('voiceActive');
-const channelInfo = document.getElementById('channelInfo');
-const teammatesList = document.getElementById('teammatesList');
-const teammates = document.getElementById('teammates');
-const muteBtn = document.getElementById('muteBtn');
-const deafenBtn = document.getElementById('deafenBtn');
-const leaveBtn = document.getElementById('leaveBtn');
+// Socket.io connection to backend
+const socket = io('http://localhost:3001');
 
-// State
-let isLoggedIn = false;
-let isMuted = false;
-let isDeafened = false;
+// DOM elements
 let currentUser = null;
 
-// Initialize
-async function init() {
-  // Check if user is already logged in
-  currentUser = await window.electronAPI.getUser();
-  if (currentUser && currentUser.puuid) {
-    showAppScreen();
+// Socket connection status
+socket.on('connect', () => {
+  console.log('Connected to backend server');
+  updateBackendStatus(true);
+});
+
+socket.on('disconnect', () => {
+  console.log('Disconnected from backend server');
+  updateBackendStatus(false);
+});
+
+function updateBackendStatus(connected) {
+  const backendStatus = document.getElementById('backend-status');
+  const backendIndicator = document.getElementById('backend-indicator');
+  
+  if (connected) {
+    backendStatus.textContent = 'Connected';
+    backendStatus.style.color = '#4ade80';
+    backendIndicator.style.backgroundColor = '#4ade80';
+  } else {
+    backendStatus.textContent = 'Disconnected';
+    backendStatus.style.color = '#ef4444';
+    backendIndicator.style.backgroundColor = '#ef4444';
   }
-
-  // Set up event listeners
-  setupEventListeners();
 }
 
-function setupEventListeners() {
-  // Listen for game state changes
-  window.electronAPI.onGameState((data) => {
-    if (data.inGame) {
-      gameStatus.textContent = 'In Game';
-      gameStatus.style.color = '#00ff88';
-    } else {
-      gameStatus.textContent = 'Not in Game';
-      gameStatus.style.color = '#fff';
-      voiceActive.classList.add('hidden');
-      muteBtn.disabled = true;
-      deafenBtn.disabled = true;
-      leaveBtn.disabled = true;
-    }
-  });
-
-  // Listen for client status
-  window.electronAPI.onClientStatus((data) => {
-    if (data.running) {
-      clientStatus.textContent = 'Running';
-      clientIndicator.classList.add('active');
-      clientIndicator.classList.remove('inactive');
-    } else {
-      clientStatus.textContent = 'Not Running';
-      clientIndicator.classList.remove('active');
-      clientIndicator.classList.add('inactive');
-    }
-  });
-
-  // Listen for voice channel join
-  window.electronAPI.onVoiceJoined((data) => {
-    console.log('Joined voice channel:', data);
-    voiceActive.classList.remove('hidden');
-    channelInfo.textContent = `${data.connectedTeammates || 0} teammate(s) connected`;
-    
-    muteBtn.disabled = false;
-    deafenBtn.disabled = false;
-    leaveBtn.disabled = false;
-
-    // Show teammates if any
-    if (data.connectedTeammates > 0) {
-      teammatesList.classList.remove('hidden');
-      // In a real implementation, you'd show actual teammate names here
-    }
-  });
-
-  // Listen for errors
-  window.electronAPI.onError((data) => {
-    alert('Error: ' + data.message);
-  });
-}
-
-async function handleLogin() {
-  const gameName = document.getElementById('gameName').value.trim();
-  const tagLine = document.getElementById('tagLine').value.trim();
-
-  if (!gameName || !tagLine) {
-    alert('Please enter both Game Name and Tag Line');
+// Login functionality
+document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const riotIdInput = document.getElementById('riot-id').value.trim();
+  const errorDiv = document.getElementById('login-error');
+  const submitButton = e.target.querySelector('button[type="submit"]');
+  
+  // Clear previous errors
+  errorDiv.style.display = 'none';
+  errorDiv.textContent = '';
+  
+  // Validate input
+  if (!riotIdInput.includes('#')) {
+    errorDiv.textContent = 'Please enter your Riot ID in the format: GameName#TagLine';
+    errorDiv.style.display = 'block';
     return;
   }
-
+  
+  // Parse Riot ID
+  const [gameName, tagLine] = riotIdInput.split('#');
+  
+  if (!gameName || !tagLine) {
+    errorDiv.textContent = 'Invalid Riot ID format. Use: GameName#TagLine';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  
+  // Disable button and show loading
+  submitButton.disabled = true;
+  submitButton.textContent = 'Logging in...';
+  
   try {
-    const riotId = `${gameName}#${tagLine}`;
-    
-    // Call the login IPC with gameName and tagLine
-    const result = await window.electronAPI.login({
-      gameName: gameName,
-      tagLine: tagLine,
-      riotId: riotId
+    const result = await window.api.login({
+      gameName: gameName.trim(),
+      tagLine: tagLine.trim(),
+      riotId: riotIdInput
     });
-
+    
     if (result.success) {
       currentUser = result.user;
-      showAppScreen();
+      
+      // Hide login screen, show main app
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app-screen').style.display = 'flex';
+      
+      // Update UI with user info
+      document.getElementById('summoner-name').textContent = result.user.riotId;
+      
     } else {
-      alert('Login failed: ' + (result.error || 'Unknown error'));
+      errorDiv.textContent = result.error || 'Login failed. Please check your Riot ID and try again.';
+      errorDiv.style.display = 'block';
+      submitButton.disabled = false;
+      submitButton.textContent = 'Login';
     }
   } catch (error) {
-    alert('Login error: ' + error.message);
+    console.error('Login error:', error);
+    errorDiv.textContent = 'An error occurred. Please try again.';
+    errorDiv.style.display = 'block';
+    submitButton.disabled = false;
+    submitButton.textContent = 'Login';
   }
-}
+});
 
-function showAppScreen() {
-  loginScreen.classList.add('hidden');
-  appScreen.classList.remove('hidden');
+// League client status
+window.api.on('league-status', (data) => {
+  console.log('League status update:', data);
+  const leagueStatus = document.getElementById('league-status');
+  const leagueIndicator = document.getElementById('league-indicator');
   
-  if (currentUser) {
-    summonerName.textContent = currentUser.riotId || currentUser.summonerName || 'Unknown';
+  if (data.running) {
+    leagueStatus.textContent = 'Running';
+    leagueStatus.style.color = '#4ade80';
+    leagueIndicator.style.backgroundColor = '#4ade80';
+  } else {
+    leagueStatus.textContent = 'Not Running';
+    leagueStatus.style.color = '#ef4444';
+    leagueIndicator.style.backgroundColor = '#ef4444';
   }
-  
-  isLoggedIn = true;
-}
+});
 
-async function toggleMute() {
-  try {
-    isMuted = await window.electronAPI.toggleMute();
+// Game status
+window.api.on('game-status', (data) => {
+  console.log('Game status update:', data);
+  const gameStatus = document.getElementById('game-status');
+  
+  if (data.inGame) {
+    gameStatus.textContent = 'In Game';
+    gameStatus.style.color = '#4ade80';
+  } else {
+    gameStatus.textContent = 'Not in Game';
+    gameStatus.style.color = '#94a3b8';
+  }
+});
+
+// Backend status
+window.api.on('backend-status', (data) => {
+  updateBackendStatus(data.connected);
+});
+
+// Voice status
+window.api.on('voice-status', (data) => {
+  console.log('Voice status update:', data);
+  const voiceContainer = document.getElementById('voice-container');
+  const voiceStatus = document.getElementById('voice-status');
+  const teammateCount = document.getElementById('teammate-count');
+  
+  if (data.status === 'connected') {
+    voiceContainer.style.display = 'block';
+    voiceStatus.textContent = 'Voice Chat Active';
+    voiceStatus.style.color = '#4ade80';
     
-    if (isMuted) {
-      muteBtn.textContent = '🔴 Unmute';
-      muteBtn.style.background = '#ff4444';
-    } else {
-      muteBtn.textContent = '🎤 Mute';
-      muteBtn.style.background = '';
+    if (data.teammates !== undefined) {
+      teammateCount.textContent = `${data.teammates} teammate${data.teammates !== 1 ? 's' : ''} connected`;
     }
+    
+    // Show SDK warning if not available
+    if (data.sdkAvailable === false) {
+      voiceStatus.textContent = 'Voice Chat Active (SDK not installed)';
+      voiceStatus.style.color = '#f59e0b';
+    }
+  } else if (data.status === 'error') {
+    voiceContainer.style.display = 'block';
+    voiceStatus.textContent = `Error: ${data.message || 'Unknown error'}`;
+    voiceStatus.style.color = '#ef4444';
+  } else {
+    voiceContainer.style.display = 'none';
+  }
+});
+
+// Mute status
+window.api.on('mute-status', (data) => {
+  const muteButton = document.getElementById('mute-button');
+  if (data.muted) {
+    muteButton.textContent = '🔇 Unmute';
+    muteButton.style.backgroundColor = '#ef4444';
+  } else {
+    muteButton.textContent = '🎤 Mute';
+    muteButton.style.backgroundColor = '#64748b';
+  }
+});
+
+// Deafen status
+window.api.on('deafen-status', (data) => {
+  const deafenButton = document.getElementById('deafen-button');
+  if (data.deafened) {
+    deafenButton.textContent = '🔊 Undeafen';
+    deafenButton.style.backgroundColor = '#ef4444';
+  } else {
+    deafenButton.textContent = '🔇 Deafen';
+    deafenButton.style.backgroundColor = '#64748b';
+  }
+});
+
+// Voice controls
+document.getElementById('mute-button')?.addEventListener('click', async () => {
+  try {
+    await window.api.toggleMute();
   } catch (error) {
     console.error('Error toggling mute:', error);
   }
-}
+});
 
-async function toggleDeafen() {
+document.getElementById('deafen-button')?.addEventListener('click', async () => {
   try {
-    isDeafened = await window.electronAPI.toggleDeafen();
-    
-    if (isDeafened) {
-      deafenBtn.textContent = '🔴 Undeafen';
-      deafenBtn.style.background = '#ff4444';
-      // Also update mute button since deafen implies mute
-      muteBtn.textContent = '🔴 Unmute';
-      muteBtn.style.background = '#ff4444';
-      isMuted = true;
-    } else {
-      deafenBtn.textContent = '🔇 Deafen';
-      deafenBtn.style.background = '';
-    }
+    await window.api.toggleDeafen();
   } catch (error) {
     console.error('Error toggling deafen:', error);
   }
-}
+});
 
-async function leaveVoice() {
+document.getElementById('leave-button')?.addEventListener('click', async () => {
   try {
-    await window.electronAPI.leaveVoice();
-    
-    voiceActive.classList.add('hidden');
-    teammatesList.classList.add('hidden');
-    muteBtn.disabled = true;
-    deafenBtn.disabled = true;
-    leaveBtn.disabled = true;
-    
-    // Reset button states
-    isMuted = false;
-    isDeafened = false;
-    muteBtn.textContent = '🎤 Mute';
-    muteBtn.style.background = '';
-    deafenBtn.textContent = '🔇 Deafen';
-    deafenBtn.style.background = '';
+    await window.api.leaveVoice();
+    document.getElementById('voice-container').style.display = 'none';
   } catch (error) {
     console.error('Error leaving voice:', error);
   }
-}
+});
 
-// Initialize when DOM is ready
-init();
+// Load user on startup (if already logged in)
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const result = await window.api.getUser();
+    if (result.success && result.user) {
+      currentUser = result.user;
+      
+      // Hide login screen, show main app
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app-screen').style.display = 'flex';
+      
+      // Update UI
+      document.getElementById('summoner-name').textContent = result.user.riotId;
+    }
+  } catch (error) {
+    console.error('Error loading user:', error);
+  }
+});

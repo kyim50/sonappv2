@@ -274,6 +274,26 @@ ipcMain.handle('leave-voice', async () => {
   }
 });
 
+ipcMain.handle('get-user', async () => {
+  try {
+    if (userData.puuid) {
+      return { 
+        success: true, 
+        user: {
+          puuid: userData.puuid,
+          riotId: userData.riotId,
+          summonerName: userData.summonerName
+        }
+      };
+    } else {
+      return { success: false, error: 'Not logged in' };
+    }
+  } catch (error) {
+    console.error('Error getting user:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-voice-status', async () => {
   try {
     const status = voiceManager.getStatus();
