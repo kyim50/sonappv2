@@ -1,0 +1,24 @@
+{
+  "name": "lol-voice-app",
+  "version": "1.0.0",
+  "description": "Auto-join voice chat for League of Legends teammates",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "server": "node server/index.js"
+  },
+  "keywords": ["league of legends", "voice chat", "electron"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "https": "^1.0.0",
+    "socket.io-client": "^4.7.0",
+    "agora-electron-sdk": "^4.2.0",
+    "dotenv": "^16.3.1"
+  }
+}

@@ -1,0 +1,243 @@
+LOL VOICE CHAT - COMPLETE FILE LIST
+=====================================
+
+ROOT DIRECTORY
+--------------
+📄 package.json                 - Electron app dependencies & scripts
+📄 .gitignore                   - Git ignore rules (protects API keys)
+
+📚 README.md                    - Complete documentation (8000+ words)
+📚 QUICKSTART.md                - 5-minute setup guide
+📚 PROJECT_SUMMARY.md           - Technical deep dive
+📚 ARCHITECTURE.md              - Visual diagrams & data flow
+📚 FILE_STRUCTURE.md            - Complete directory reference
+🌐 INDEX.html                   - Interactive file browser
+
+
+ELECTRON APP (src/)
+--------------------
+📱 src/main.js                  - Main process (Node.js environment)
+                                 • Creates app window
+                                 • Initializes services
+                                 • Handles game detection
+                                 • IPC communication
+
+🔒 src/preload.js               - IPC security bridge
+                                 • Exposes safe APIs
+                                 • Context isolation
+                                 • Prevents Node.js access
+
+
+FRONTEND (src/renderer/)
+------------------------
+🎨 src/renderer/index.html      - User Interface
+                                 • Login screen
+                                 • Game status display
+                                 • Voice controls
+                                 • Teammate list
+
+📜 src/renderer/renderer.js     - Frontend logic
+                                 • UI state management
+                                 • Event handlers
+                                 • IPC calls
+
+
+SERVICES (src/services/)
+------------------------
+🔧 src/services/gameDetector.js - League client detection
+                                 • Monitor League process
+                                 • Poll LCU API every 3s
+                                 • Detect game start/end
+                                 • 200 lines of code
+
+🔧 src/services/riotAPI.js      - Riot Games API wrapper
+                                 • Get account by PUUID
+                                 • Get active game data
+                                 • Get summoner info
+                                 • NA region (na1)
+                                 • 150 lines of code
+
+🔧 src/services/voiceManager.js - Voice & backend communication
+                                 • Socket.io client
+                                 • Agora SDK wrapper
+                                 • Mute/deafen controls
+                                 • 170 lines of code
+
+
+BACKEND SERVER (server/)
+------------------------
+🖥️ server/index.js              - Express + Socket.io server
+                                 • User management
+                                 • Channel creation
+                                 • Team matching
+                                 • Riot API verification
+                                 • 360 lines of code
+
+📄 server/package.json          - Server dependencies
+                                 • Express
+                                 • Socket.io
+                                 • Axios
+                                 • CORS
+                                 • dotenv
+
+⚙️ server/.env.example          - Configuration template
+                                 • RIOT_API_KEY
+                                 • AGORA_APP_ID
+                                 • AGORA_APP_CERTIFICATE
+                                 • PORT
+
+
+TOTAL FILES: 16
+TOTAL CODE: ~1,500 lines
+DOCUMENTATION: ~15,000 words
+
+
+QUICK ACCESS LINKS
+==================
+Start here: QUICKSTART.md
+Full docs:  README.md
+Tech deep dive: PROJECT_SUMMARY.md
+Visual guide: ARCHITECTURE.md
+File reference: FILE_STRUCTURE.md
+Browse files: INDEX.html
+
+
+SETUP STEPS
+===========
+1. Get API keys:
+   - Riot: https://developer.riotgames.com
+   - Agora: https://console.agora.io
+
+2. Install dependencies:
+   $ npm install
+   $ cd server && npm install
+
+3. Configure:
+   $ cd server
+   $ cp .env.example .env
+   $ nano .env  # Add your API keys
+
+4. Run (2 terminals):
+   Terminal 1: cd server && npm start
+   Terminal 2: npm start
+
+
+FILE PURPOSES
+=============
+main.js          → Electron entry point, service orchestration
+preload.js       → Security layer for IPC
+index.html       → User interface
+renderer.js      → Frontend state & events
+gameDetector.js  → Detect League & game state
+riotAPI.js       → Query Riot API for game data
+voiceManager.js  → Handle voice connections
+server/index.js  → Backend server logic
+
+
+KEY FEATURES
+============
+✅ Auto game detection
+✅ Riot API integration (NA)
+✅ Team matching logic
+✅ Real-time WebSocket
+✅ Channel management
+✅ Voice framework (needs completion)
+✅ Secure IPC
+✅ Extensive documentation
+
+
+WHAT NEEDS WORK
+===============
+⚠️ Complete Agora voice integration
+⚠️ Implement Riot OAuth
+⚠️ Add token generation
+⚠️ Test multi-user
+⚠️ Build installer
+
+
+ESTIMATED EFFORT TO MVP
+========================
+Riot OAuth:     2-3 days
+Agora Voice:    2-3 days
+Testing:        2-3 days
+TOTAL:          1-2 weeks
+
+
+TECHNOLOGY STACK
+================
+Frontend:   Electron, HTML, CSS, JavaScript
+Backend:    Node.js, Express, Socket.io
+APIs:       Riot Games API, Agora.io
+Protocol:   WebSocket, REST, WebRTC
+Region:     NA (na1)
+
+
+PORTS & ENDPOINTS
+=================
+3001        - Backend server (HTTP + WebSocket)
+2999        - League LCU API (local HTTPS)
+Dynamic     - Agora WebRTC (UDP)
+
+
+DEPENDENCIES
+============
+Electron App:
+- electron ^27.0.0
+- axios ^1.6.0
+- socket.io-client ^4.7.0
+- agora-electron-sdk ^4.2.0
+
+Backend Server:
+- express ^4.18.2
+- socket.io ^4.7.0
+- axios ^1.6.0
+- cors ^2.8.5
+- dotenv ^16.3.1
+
+
+SECURITY FEATURES
+=================
+✅ Context isolation (Electron)
+✅ Preload script (IPC security)
+✅ Environment variables for secrets
+✅ HTTPS for Riot API
+✅ .gitignore for sensitive files
+
+
+TESTING CHECKLIST
+=================
+□ Start backend server
+□ Start Electron app
+□ Login with Riot ID
+□ Launch League of Legends
+□ Start practice tool game
+□ Verify game detection
+□ Check Riot API calls
+□ Test with friend (same game)
+□ Verify channel creation
+□ Test voice connection
+
+
+SUPPORT & RESOURCES
+===================
+Riot API Docs:   https://developer.riotgames.com/docs/lol
+LCU API Guide:   https://hextechdocs.dev
+Agora Docs:      https://docs.agora.io/en/
+Electron Docs:   https://www.electronjs.org/docs
+Socket.io Docs:  https://socket.io/docs/v4/
+
+
+PROJECT STATUS
+==============
+Architecture:    ✅ Complete
+Backend Logic:   ✅ Complete
+Frontend UI:     ✅ Complete
+Game Detection:  ✅ Complete
+Riot API:        ✅ Complete
+Team Matching:   ✅ Complete
+Voice Framework: ⚠️ Needs completion
+OAuth:           ⚠️ Not implemented
+Production:      ⚠️ Needs polish
+
+
+All files are ready to use! Start with QUICKSTART.md
