@@ -30,42 +30,50 @@ class VoiceManager extends EventEmitter {
   }
 
   connectToBackend() {
-    this.socket = io(this.backendUrl, {
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 10
-    });
+  console.log(`Connecting to backend: ${this.backendUrl}`);
+  
+  this.socket = io(this.backendUrl, {
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: 10,
+    transports: ['websocket', 'polling']  // Try both transports
+  });
 
-    this.socket.on('connect', () => {
-      console.log('Connected to backend server');
-      this.emit('backend-connected');
-    });
+  this.socket.on('connect', () => {
+    console.log('✅ Connected to backend server');
+    this.emit('backend-connected');
+  });
 
-    this.socket.on('disconnect', () => {
-      console.log('Disconnected from backend server');
-      this.emit('backend-disconnected');
-    });
+  this.socket.on('connect_error', (error) => {
+    console.error('❌ Backend connection error:', error.message);
+    console.error('   Trying to connect to:', this.backendUrl);
+  });
 
-    this.socket.on('channel-created', (data) => {
-      console.log('Channel created:', data);
-      this.emit('channel-ready', data);
-    });
+  this.socket.on('disconnect', (reason) => {
+    console.log('⚠️  Disconnected from backend server. Reason:', reason);
+    this.emit('backend-disconnected');
+  });
 
-    this.socket.on('user-joined-channel', (data) => {
-      console.log('User joined channel:', data);
-      this.emit('user-joined', data);
-    });
+  this.socket.on('channel-created', (data) => {
+    console.log('Channel created:', data);
+    this.emit('channel-ready', data);
+  });
 
-    this.socket.on('user-left-channel', (data) => {
-      console.log('User left channel:', data);
-      this.emit('user-left', data);
-    });
+  this.socket.on('user-joined-channel', (data) => {
+    console.log('User joined channel:', data);
+    this.emit('user-joined', data);
+  });
 
-    this.socket.on('error', (error) => {
-      console.error('Socket error:', error);
-      this.emit('error', error);
-    });
-  }
+  this.socket.on('user-left-channel', (data) => {
+    console.log('User left channel:', data);
+    this.emit('user-left', data);
+  });
+
+  this.socket.on('error', (error) => {
+    console.error('Socket error:', error);
+    this.emit('error', error);
+  });
+}
 
   initializeAgora(agoraAppId) {
     if (!this.AgoraRtcEngine) {
