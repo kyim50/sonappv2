@@ -76,61 +76,59 @@ class VoiceManager extends EventEmitter {
 }
 
   initializeAgora(agoraAppId) {
-    if (!this.AgoraRtcEngine) {
-      console.log('⚠️  Cannot initialize - Agora SDK not available');
-      return false;
-    }
-
-    if (this.rtcEngine) {
-      console.log('Agora already initialized');
-      return true;
-    }
-
-    try {
-      this.agoraAppId = agoraAppId;
-      
-      // Create RTC Engine instance
-      this.rtcEngine = new this.AgoraRtcEngine();
-      
-      // Initialize with proper context
-      const initResult = this.rtcEngine.initialize(agoraAppId, {
-        // Area code for region
-        areaCode: [1], // 1 = Global (excluding China)
-        
-        // Log configuration
-        logConfig: {
-          filePath: '',
-          fileSize: 2048,
-          level: 1
-        }
-      });
-
-      if (initResult < 0) {
-        console.error('❌ Agora initialization failed with code:', initResult);
-        return false;
-      }
-      
-      // Set channel profile to communication (voice chat)
-      this.rtcEngine.setChannelProfile(1); // 1 = COMMUNICATION
-      
-      // Enable audio
-      this.rtcEngine.enableAudio();
-      
-      // Set audio profile for voice chat
-      // Profile 4 = MUSIC_STANDARD (good quality voice)
-      // Scenario 3 = GAME_STREAMING
-      this.rtcEngine.setAudioProfile(4, 3);
-      
-      // Register event handlers
-      this.setupAgoraEventHandlers();
-      
-      console.log('✅ Agora RTC Engine initialized');
-      return true;
-    } catch (error) {
-      console.error('❌ Failed to initialize Agora:', error);
-      return false;
-    }
+  if (!this.AgoraRtcEngine) {
+    console.log('⚠️  Cannot initialize - Agora SDK not available');
+    return false;
   }
+
+  if (this.rtcEngine) {
+    console.log('Agora already initialized');
+    return true;
+  }
+
+  try {
+    this.agoraAppId = agoraAppId;
+    
+    // Create RTC Engine instance
+    this.rtcEngine = new this.AgoraRtcEngine();
+    
+    // Initialize with appId object (as shown in Agora docs)
+    const initResult = this.rtcEngine.initialize({
+      appId: agoraAppId
+    });
+
+    if (initResult < 0) {
+      console.error('❌ Agora initialization failed with code:', initResult);
+      this.rtcEngine = null;
+      return false;
+    }
+    
+    console.log('✅ Agora initialized with App ID:', agoraAppId);
+    
+    // Set channel profile to communication (voice chat)
+    this.rtcEngine.setChannelProfile(1); // 1 = COMMUNICATION
+    
+    // Set client role to broadcaster (can send and receive)
+    this.rtcEngine.setClientRole(1); // 1 = BROADCASTER
+    
+    // Enable audio
+    this.rtcEngine.enableAudio();
+    
+    // Set audio profile for voice chat
+    // Profile 4 = MUSIC_STANDARD, Scenario 3 = GAME_STREAMING
+    this.rtcEngine.setAudioProfile(4, 3);
+    
+    // Register event handlers
+    this.setupAgoraEventHandlers();
+    
+    console.log('✅ Agora RTC Engine initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to initialize Agora:', error);
+    this.rtcEngine = null;
+    return false;
+  }
+}
 
   setupAgoraEventHandlers() {
     if (!this.rtcEngine) return;
