@@ -1,28 +1,34 @@
 const axios = require('axios');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../server/.env') });
 
 class RiotAPI {
-  constructor(region = 'na1') {
-    this.region = region; // na1 for NA
-    this.platformUrl = `https://${region}.api.riotgames.com`;
-    this.americasUrl = 'https://americas.api.riotgames.com'; // For account and match APIs
+  constructor() {
+    this.apiKey = process.env.RIOT_API_KEY;
+    this.region = process.env.RIOT_REGION || 'na1';
+    this.americasRegion = process.env.RIOT_AMERICAS_REGION || 'americas';
     
-    // Get your API key from https://developer.riotgames.com/
-    // For production, store this in environment variables!
-    this.apiKey = process.env.RIOT_API_KEY || 'YOUR_RIOT_API_KEY_HERE';
+    // API URLs
+    this.regionalUrl = `https://${this.region}.api.riotgames.com`;
+    this.americasUrl = `https://${this.americasRegion}.api.riotgames.com`;
     
-    this.axiosInstance = axios.create({
-      headers: {
-        'X-Riot-Token': this.apiKey
-      }
-    });
+    if (!this.apiKey) {
+      console.warn('⚠️  Riot API key not configured in .env file');
+    }
   }
 
-  // Get account info by PUUID (uses americas routing for NA)
-  async getAccountByPuuid(puuid) {
+  // Get account by Riot ID (gameName#tagLine)
+  async getAccountByRiotId(gameName, tagLine) {
     try {
-      const response = await this.axiosInstance.get(
-        `${this.americasUrl}/riot/account/v1/accounts/by-puuid/${puuid}`
+      const response = await axios.get(
+        `${this.americasUrl}/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`,
+        {
+          headers: {
+            'X-Riot-Token': this.apiKey
+          }
+        }
       );
+
       return response.data;
     } catch (error) {
       console.error('Error fetching account:', error.response?.data || error.message);
@@ -30,25 +36,18 @@ class RiotAPI {
     }
   }
 
-  // Get account by Riot ID (gameName#tagLine)
-  async getAccountByRiotId(gameName, tagLine) {
-    try {
-      const response = await this.axiosInstance.get(
-        `${this.americasUrl}/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching account by Riot ID:', error.response?.data || error.message);
-      throw error;
-    }
-  }
-
-  // Get summoner info by PUUID
+  // Get summoner by PUUID
   async getSummonerByPuuid(puuid) {
     try {
-      const response = await this.axiosInstance.get(
-        `${this.platformUrl}/lol/summoner/v4/summoners/by-puuid/${puuid}`
+      const response = await axios.get(
+        `${this.regionalUrl}/lol/summoner/v4/summoners/by-puuid/${puuid}`,
+        {
+          headers: {
+            'X-Riot-Token': this.apiKey
+          }
+        }
       );
+
       return response.data;
     } catch (error) {
       console.error('Error fetching summoner:', error.response?.data || error.message);
@@ -56,35 +55,42 @@ class RiotAPI {
     }
   }
 
-  // Get active game by summoner PUUID
-  async getActiveGame(puuid) {
+  // Get current game by PUUID
+  async getCurrentGame(puuid) {
     try {
-      const response = await this.axiosInstance.get(
-        `${this.platformUrl}/lol/spectator/v5/active-games/by-summoner/${puuid}`
+      const response = await axios.get(
+        `${this.regionalUrl}/lol/spectator/v5/active-games/by-summoner/${puuid}`,
+        {
+          headers: {
+            'X-Riot-Token': this.apiKey
+          }
+        }
       );
+
       return response.data;
     } catch (error) {
       if (error.response?.status === 404) {
-        // Not in game
+        // Not in game - this is expected
         return null;
       }
-      console.error('Error fetching active game:', error.response?.data || error.message);
+      console.error('Error fetching current game:', error.response?.data || error.message);
       throw error;
     }
   }
 
   // Get match history
-  async getMatchHistory(puuid, count = 20) {
+  async getMatchHistory(puuid, start = 0, count = 20) {
     try {
-      const response = await this.axiosInstance.get(
+      const response = await axios.get(
         `${this.americasUrl}/lol/match/v5/matches/by-puuid/${puuid}/ids`,
         {
-          params: {
-            start: 0,
-            count: count
+          params: { start, count },
+          headers: {
+            'X-Riot-Token': this.apiKey
           }
         }
       );
+
       return response.data;
     } catch (error) {
       console.error('Error fetching match history:', error.response?.data || error.message);
@@ -95,9 +101,15 @@ class RiotAPI {
   // Get match details
   async getMatch(matchId) {
     try {
-      const response = await this.axiosInstance.get(
-        `${this.americasUrl}/lol/match/v5/matches/${matchId}`
+      const response = await axios.get(
+        `${this.americasUrl}/lol/match/v5/matches/${matchId}`,
+        {
+          headers: {
+            'X-Riot-Token': this.apiKey
+          }
+        }
       );
+
       return response.data;
     } catch (error) {
       console.error('Error fetching match:', error.response?.data || error.message);
@@ -105,19 +117,41 @@ class RiotAPI {
     }
   }
 
-  // Validate API key
-  async validateApiKey() {
+  // Get champion mastery
+  async getChampionMastery(puuid) {
     try {
-      // Make a simple request to check if API key works
-      await this.axiosInstance.get(`${this.platformUrl}/lol/status/v4/platform-data`);
-      return true;
+      const response = await axios.get(
+        `${this.regionalUrl}/lol/champion-mastery/v4/champion-masteries/by-puuid/${puuid}`,
+        {
+          headers: {
+            'X-Riot-Token': this.apiKey
+          }
+        }
+      );
+
+      return response.data;
     } catch (error) {
-      if (error.response?.status === 403) {
-        console.error('Invalid API key');
-        return false;
-      }
-      console.error('Error validating API key:', error.message);
-      return false;
+      console.error('Error fetching champion mastery:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  // Get league entries (ranked info)
+  async getLeagueEntries(summonerId) {
+    try {
+      const response = await axios.get(
+        `${this.regionalUrl}/lol/league/v4/entries/by-summoner/${summonerId}`,
+        {
+          headers: {
+            'X-Riot-Token': this.apiKey
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching league entries:', error.response?.data || error.message);
+      throw error;
     }
   }
 }
