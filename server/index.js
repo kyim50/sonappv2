@@ -1,26 +1,25 @@
-require('dotenv').config();
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
+const socketIo = require('socket.io');
 const axios = require('axios');
+const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
+const io = socketIo(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
   }
 });
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Store active users and channels
-const activeUsers = new Map(); // puuid -> { socketId, currentChannel, riotId }
-const activeChannels = new Map(); // channelId -> { gameId, teamId, users: [], agoraInfo }
-const gameChannels = new Map(); // gameId_teamId -> channelId
+// Configuration
+const PORT = process.env.PORT || 3001;
 
 // Riot API configuration
 const RIOT_API_KEY = process.env.RIOT_API_KEY;
@@ -37,165 +36,246 @@ const AGORA_REST_SECRET = process.env.AGORA_REST_SECRET;
 const AgoraTokenGenerator = require('./agoraTokenGenerator');
 const tokenGenerator = new AgoraTokenGenerator(AGORA_APP_ID, AGORA_APP_CERTIFICATE);
 
-// Basic health check
+// In-memory storage
+const activeUsers = new Map(); // puuid -> { socketId, riotId, currentGameId, currentChannel }
+const activeChannels = new Map(); // channelId -> { gameId, teamId, users: [puuid], createdAt }
+const gameChannels = new Map(); // gameId_teamId -> channelId
+
+// Helper function to verify Riot API
+async function verifyRiotAPI() {
+  try {
+    const response = await axios.get(
+      'https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/test/NA1',
+      {
+        headers: {
+          'X-Riot-Token': RIOT_API_KEY
+        },
+        validateStatus: (status) => status === 404 || status === 200
+      }
+    );
+    
+    console.log('✓ Riot API key verified');
+    return true;
+  } catch (error) {
+    if (error.response?.status === 403 || error.response?.status === 401) {
+      console.log('⚠️  Warning: Riot API key verification failed');
+      console.log('   Your API key might be invalid or expired');
+      console.log('   Get a new one from: https://developer.riotgames.com/');
+      return false;
+    }
+    console.log('✓ Riot API key verified');
+    return true;
+  }
+}
+
+// REST API Routes
+
+// Health check
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok',
+    timestamp: new Date().toISOString(),
     activeUsers: activeUsers.size,
     activeChannels: activeChannels.size
   });
 });
 
-// Socket.io connection handling
+// Get account by Riot ID
+app.get('/api/account/:gameName/:tagLine', async (req, res) => {
+  try {
+    const { gameName, tagLine } = req.params;
+    
+    const response = await axios.get(
+      `https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`,
+      {
+        headers: {
+          'X-Riot-Token': RIOT_API_KEY
+        }
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching account:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({ 
+      error: error.response?.data || 'Failed to fetch account' 
+    });
+  }
+});
+
+// Get current game by PUUID
+app.get('/api/spectator/:puuid', async (req, res) => {
+  try {
+    const { puuid } = req.params;
+    
+    const response = await axios.get(
+      `${RIOT_PLATFORM_URL}/lol/spectator/v5/active-games/by-summoner/${puuid}`,
+      {
+        headers: {
+          'X-Riot-Token': RIOT_API_KEY
+        }
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    if (error.response?.status === 404) {
+      res.status(404).json({ error: 'Not in game' });
+    } else {
+      console.error('Error fetching game:', error.response?.data || error.message);
+      res.status(error.response?.status || 500).json({ 
+        error: error.response?.data || 'Failed to fetch game' 
+      });
+    }
+  }
+});
+
+// WebSocket handlers
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  // Register user
-  socket.on('register-user', (userData, callback) => {
+  // User registration
+  socket.on('register-user', (userData) => {
     const { puuid, riotId } = userData;
     
     activeUsers.set(puuid, {
       socketId: socket.id,
-      currentChannel: null,
       riotId: riotId,
-      connectedAt: Date.now()
+      currentGameId: null,
+      currentChannel: null
     });
 
     console.log(`User registered: ${riotId} (${puuid})`);
-    
-    if (callback) {
-      callback({ success: true });
-    }
+    socket.emit('registration-confirmed', { puuid, riotId });
   });
 
-  // Find or create channel for a game
+  // Find or create voice channel for a game
   socket.on('find-or-create-channel', async (gameInfo, callback) => {
     try {
-      const { gameId, teamId, userPuuid, teammates } = gameInfo;
-      const channelKey = `${gameId}_${teamId}`;
+      const { gameId, teamId, participants, userPuuid } = gameInfo;
+      
+      console.log(`Finding or creating channel for game: ${gameId}, team: ${teamId}`);
 
-      // Check if channel already exists
+      // Check if channel already exists for this game+team
+      const channelKey = `${gameId}_${teamId}`;
       let channelId = gameChannels.get(channelKey);
       let channel;
 
-      if (channelId) {
+      if (channelId && activeChannels.has(channelId)) {
         // Channel exists
         channel = activeChannels.get(channelId);
-        console.log(`Found existing channel: ${channelId}`);
+        console.log(`Using existing channel: ${channelId}`);
       } else {
         // Create new channel
         channelId = `${gameId}_${teamId}_${Date.now()}`;
-        
-        // Generate Agora token (simplified - in production use proper token generation)
-        const agoraToken = generateAgoraToken(channelId, userPuuid);
-        
         channel = {
-          channelId,
-          channelName: channelId,
           gameId,
           teamId,
           users: [],
-          agoraAppId: AGORA_APP_ID,
-          agoraToken: agoraToken,
           createdAt: Date.now()
         };
-
+        
         activeChannels.set(channelId, channel);
         gameChannels.set(channelKey, channelId);
         
         console.log(`Created new channel: ${channelId}`);
       }
 
-      // Find which teammates are using the app
-      const connectedTeammates = [];
-      for (const teammate of teammates) {
-        if (activeUsers.has(teammate.puuid)) {
-          connectedTeammates.push(teammate);
-          
-          // Notify teammate about the channel
-          const teammateUser = activeUsers.get(teammate.puuid);
-          io.to(teammateUser.socketId).emit('channel-available', {
+      // Find teammates who are using the app
+      const teammates = participants.filter(p => 
+        p.puuid !== userPuuid && activeUsers.has(p.puuid)
+      );
+
+      console.log(`Found ${teammates.length} teammates using the app`);
+
+      // Generate Agora token (if needed)
+      const agoraToken = tokenGenerator.generateToken(channelId, userPuuid);
+
+      // Update user's current game
+      const user = activeUsers.get(userPuuid);
+      if (user) {
+        user.currentGameId = gameId;
+      }
+
+      callback({
+        success: true,
+        channelId: channelId,
+        channelName: channelId,
+        agoraAppId: AGORA_APP_ID,
+        agoraToken: agoraToken,
+        userPuuid: userPuuid,
+        connectedTeammates: teammates.length
+      });
+
+      // Notify teammates about the channel
+      teammates.forEach(teammate => {
+        const teammateUser = activeUsers.get(teammate.puuid);
+        if (teammateUser) {
+          io.to(teammateUser.socketId).emit('channel-created', {
             channelId,
-            channelInfo: channel,
-            invitedBy: userPuuid
+            channelName: channelId,
+            agoraAppId: AGORA_APP_ID,
+            agoraToken: tokenGenerator.generateToken(channelId, teammate.puuid),
+            userPuuid: teammate.puuid
           });
+        }
+      });
+
+    } catch (error) {
+      console.error('Error finding/creating channel:', error);
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // User joins a voice channel
+  socket.on('join-channel', (data) => {
+    const { channelId, userPuuid } = data;
+
+    const channel = activeChannels.get(channelId);
+    if (channel) {
+      // Add user to channel if not already there
+      if (!channel.users.includes(userPuuid)) {
+        channel.users.push(userPuuid);
+      }
+
+      // Update user's current channel
+      const user = activeUsers.get(userPuuid);
+      if (user) {
+        user.currentChannel = channelId;
+      }
+
+      // Join socket room for this channel
+      socket.join(channelId);
+
+      // Notify others in the channel
+      socket.to(channelId).emit('user-joined-channel', {
+        userPuuid,
+        riotId: user?.riotId
+      });
+
+      console.log(`User ${userPuuid} joined channel ${channelId}`);
+    }
+  });
+
+  // User leaves a voice channel
+  socket.on('leave-channel', (data) => {
+    const { channelId } = data;
+
+    const channel = activeChannels.get(channelId);
+    if (channel) {
+      // Find user by socket ID
+      let userPuuid = null;
+      for (const [puuid, user] of activeUsers.entries()) {
+        if (user.socketId === socket.id) {
+          userPuuid = puuid;
+          break;
         }
       }
 
-      console.log(`Found ${connectedTeammates.length} teammates using the app`);
-
-      // Return channel info
-      if (callback) {
-        callback({
-          success: true,
-          channelId,
-          channelName: channel.channelName,
-          agoraAppId: channel.agoraAppId,
-          agoraToken: channel.agoraToken,
-          userPuuid: userPuuid,
-          connectedTeammates: connectedTeammates.length
-        });
+      if (userPuuid) {
+        // Remove user from channel
+        channel.users = channel.users.filter(u => u !== userPuuid);
       }
-    } catch (error) {
-      console.error('Error finding/creating channel:', error);
-      if (callback) {
-        callback({ success: false, error: error.message });
-      }
-    }
-  });
-
-  // Join a channel
-  socket.on('join-channel', (data) => {
-    const { channelId, userPuuid } = data;
-    const channel = activeChannels.get(channelId);
-    
-    if (!channel) {
-      socket.emit('error', { message: 'Channel not found' });
-      return;
-    }
-
-    // Add user to channel
-    if (!channel.users.includes(userPuuid)) {
-      channel.users.push(userPuuid);
-    }
-
-    // Update user's current channel
-    const user = activeUsers.get(userPuuid);
-    if (user) {
-      user.currentChannel = channelId;
-    }
-
-    // Join socket room
-    socket.join(channelId);
-
-    // Notify others in the channel
-    socket.to(channelId).emit('user-joined-channel', {
-      userPuuid,
-      riotId: user?.riotId
-    });
-
-    console.log(`User ${userPuuid} joined channel ${channelId}`);
-  });
-
-  // Leave a channel
-  socket.on('leave-channel', (data) => {
-    const { channelId } = data;
-    const channel = activeChannels.get(channelId);
-    
-    if (!channel) return;
-
-    // Find user by socket ID
-    let userPuuid = null;
-    for (const [puuid, user] of activeUsers.entries()) {
-      if (user.socketId === socket.id) {
-        userPuuid = puuid;
-        break;
-      }
-    }
-
-    if (userPuuid) {
-      // Remove user from channel
-      channel.users = channel.users.filter(u => u !== userPuuid);
 
       // Update user's current channel
       const user = activeUsers.get(userPuuid);
@@ -250,50 +330,50 @@ io.on('connection', (socket) => {
           }
         }
 
+        // Remove user
         activeUsers.delete(puuid);
-        console.log(`User ${puuid} removed from active users`);
+        console.log(`Removed user: ${user.riotId}`);
         break;
       }
     }
   });
 });
 
-// Generate Agora token
-function generateAgoraToken(channelName, uid) {
-  // Use the token generator
-  const token = tokenGenerator.generateToken(channelName, uid);
-  
-  // Returns null for "App ID only" mode (testing)
-  // For production, implement proper token generation in agoraTokenGenerator.js
-  return token;
-}
+// Cleanup old channels (run every 30 minutes)
+setInterval(() => {
+  const now = Date.now();
+  const CHANNEL_TIMEOUT = 2 * 60 * 60 * 1000; // 2 hours
 
-// Verify Riot API key on startup
-async function verifyRiotAPI() {
-  try {
-    const response = await axios.get(
-      `${RIOT_PLATFORM_URL}/lol/status/v4/platform-data`,
-      {
-        headers: {
-          'X-Riot-Token': RIOT_API_KEY
-        }
-      }
-    );
-    console.log('✓ Riot API key verified');
-    return true;
-  } catch (error) {
-    console.error('✗ Riot API key verification failed:', error.response?.data || error.message);
-    console.error('Please set RIOT_API_KEY in .env file');
-    return false;
+  for (const [channelId, channel] of activeChannels.entries()) {
+    if (now - channel.createdAt > CHANNEL_TIMEOUT) {
+      console.log(`Cleaning up old channel: ${channelId}`);
+      activeChannels.delete(channelId);
+      gameChannels.delete(`${channel.gameId}_${channel.teamId}`);
+    }
   }
-}
+}, 30 * 60 * 1000);
 
 // Start server
-const PORT = process.env.PORT || 3001;
-
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`\n🚀 Server running on port ${PORT}`);
-  console.log(`   Health check: http://localhost:${PORT}/health`);
+  console.log(`   Local: http://localhost:${PORT}/health`);
+  
+  // Get local IP address
+  const os = require('os');
+  const networkInterfaces = os.networkInterfaces();
+  let localIP = 'Unknown';
+  
+  // Find the local network IP
+  Object.keys(networkInterfaces).forEach((interfaceName) => {
+    networkInterfaces[interfaceName].forEach((iface) => {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        localIP = iface.address;
+      }
+    });
+  });
+  
+  console.log(`   Network: http://${localIP}:${PORT}/health`);
+  console.log(`\n   📡 Share this URL with friends: http://${localIP}:${PORT}`);
   
   // Validate Riot API key
   if (RIOT_API_KEY && RIOT_API_KEY !== 'YOUR_RIOT_API_KEY_HERE') {
@@ -328,17 +408,3 @@ server.listen(PORT, async () => {
   console.log('\n📱 Ready for connections!');
   console.log('   Start the Electron app with: npm start\n');
 });
-
-// Cleanup old channels periodically (every 5 minutes)
-setInterval(() => {
-  const now = Date.now();
-  const maxAge = 30 * 60 * 1000; // 30 minutes
-
-  for (const [channelId, channel] of activeChannels.entries()) {
-    if (now - channel.createdAt > maxAge && channel.users.length === 0) {
-      activeChannels.delete(channelId);
-      gameChannels.delete(`${channel.gameId}_${channel.teamId}`);
-      console.log(`Cleaned up old channel: ${channelId}`);
-    }
-  }
-}, 5 * 60 * 1000);
