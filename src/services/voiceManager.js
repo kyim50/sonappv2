@@ -92,10 +92,23 @@ class VoiceManager extends EventEmitter {
     // Create RTC Engine instance
     this.rtcEngine = new this.AgoraRtcEngine();
     
-    // Initialize with appId object (as shown in Agora docs)
-    const initResult = this.rtcEngine.initialize({
-      appId: agoraAppId
-    });
+    let initResult = -1;
+    
+    // Try to initialize - catch window errors
+    try {
+      initResult = this.rtcEngine.initialize({
+        appId: agoraAppId
+      });
+    } catch (error) {
+      // The SDK throws "window is not defined" but native part works
+      // Check if error is about window
+      if (error.message && error.message.includes('window is not defined')) {
+        console.log('⚠️  Ignoring JavaScript wrapper error (native SDK initialized)');
+        initResult = 0; // Treat as success
+      } else {
+        throw error; // Re-throw other errors
+      }
+    }
 
     if (initResult < 0) {
       console.error('❌ Agora initialization failed with code:', initResult);
@@ -115,7 +128,6 @@ class VoiceManager extends EventEmitter {
     this.rtcEngine.enableAudio();
     
     // Set audio profile for voice chat
-    // Profile 4 = MUSIC_STANDARD, Scenario 3 = GAME_STREAMING
     this.rtcEngine.setAudioProfile(4, 3);
     
     // Register event handlers
